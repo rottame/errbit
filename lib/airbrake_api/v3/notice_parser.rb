@@ -1,3 +1,5 @@
+require "open-uri"
+require "execjs"
 module AirbrakeApi
   module V3
     class NoticeParser
@@ -35,12 +37,16 @@ module AirbrakeApi
 
       def backtrace
         (error['backtrace'] || []).map do |backtrace_line|
-          {
+          event = {
             method: backtrace_line['function'],
             file:   backtrace_line['file'],
             number: backtrace_line['line'],
             column: backtrace_line['column']
           }
+          if context['sourceMapEnabled']
+            event = resolve_source_maps(event)
+          end
+          event
         end
       end
 
@@ -91,6 +97,49 @@ module AirbrakeApi
 
       def context
         @context = params['context'] || {}
+      end
+
+      def resolve_source_maps(event)
+        if source_map_for?(event[:file])
+          begin
+            code = "(new sourceMap.SourceMapConsumer(#{source_map_for(event[:file])})).originalPositionFor({line: #{event[:number]}, column: #{event[:column]}})"
+            position = source_map_parser.eval(code)
+            if position['line'] && position['column'] && position['source']
+              event[:number] = position['line']
+              event[:column] = position['column']
+              event[:file] = position['source']
+            end
+          rescue => e
+            HoptoadNotifier.notify(e)
+          end
+        end
+        event
+      end
+
+      def source_map_for?(file)
+        context['sourceMaps'][file].present?
+      end
+
+      def source_map_for(file)
+        map = context['sourceMaps'][file]
+        @source_maps ||= {}
+        @source_maps[file] ||= begin
+          begin
+            Rails.cache.fetch(map) do
+              open(map).read.force_encoding(Encoding::UTF_8).encode
+            end
+          rescue => e
+            HoptoadNotifier.notify(e)
+            "{version:3,sources:[],mappings:[]}"
+          end
+        end
+      end
+
+      def source_map_parser
+        @source_map_parser ||= begin
+          source = File::join(Rails.root, 'lib', 'mozilla_source_map', 'source-map.min.js')
+          ExecJS.compile(File::read(source))
+        end
       end
     end
   end
