@@ -117,7 +117,8 @@ module AirbrakeApi
       end
 
       def source_map_for?(file)
-        context['sourceMaps'][file].present?
+        maps = context['sourceMaps'] || {}
+        maps[file].present?
       end
 
       def source_map_for(file)
