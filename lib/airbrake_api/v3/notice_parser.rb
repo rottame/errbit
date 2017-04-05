@@ -1,4 +1,4 @@
-require "open-uri"
+require 'net/http'
 require "execjs"
 module AirbrakeApi
   module V3
@@ -118,20 +118,63 @@ module AirbrakeApi
 
       def source_map_for?(file)
         maps = context['sourceMaps'] || {}
-        maps[file].present?
+        maps[file].present? || file_has_source_map?(file)
       end
 
       def source_map_for(file)
-        map = context['sourceMaps'][file]
+        maps = context['sourceMaps'] || {}
+        map = maps[file] || source_map_url_from_file(file)
         @source_maps ||= {}
         @source_maps[file] ||= begin
-          begin
-            Rails.cache.fetch(map) do
-              open(map).read.force_encoding(Encoding::UTF_8).encode
+          if map
+            sourcemap = begin
+              Rails.cache.fetch(map, expires_in: 1.hour) do
+                uri = URI(map)
+                Net::HTTP.get(uri).force_encoding(Encoding::UTF_8).encode
+              end
+            rescue => e
+              HoptoadNotifier.notify(e)
+              Rails.cache.fetch(map, expires_in: 10.minutes) do
+                nil
+              end
             end
-          rescue => e
-            HoptoadNotifier.notify(e)
-            "{version:3,sources:[],mappings:[]}"
+          end
+          sourcemap || "{version:3,sources:[],mappings:[]}"
+        end
+      end
+
+      SOURCEMAPPING_REGEXP = /^\s*\/(?:\/|\*)[@#]\s+sourceMappingURL=(.+)$/m
+      def file_has_source_map?(url)
+        source_map_url_from_file(url).present?
+      end
+
+      def source_map_url_from_file(url)
+        begin
+          # step 1: fetch the javascript file
+          Rails.cache.fetch(url, expires_in: 1.hour) do
+            uri = URI(url)
+            http = Net::HTTP.new(uri.host, uri.port)
+            response = http.get(uri.path)
+
+            mapurl = nil
+            if response.is_a?(Net::HTTPSuccess)
+              # sourcemap header
+              mapurl = response['X-SourceMap'] if response['X-SourceMap'].present?
+              # no header? parse the file
+              if !mapurl && (match = response.body.match(SOURCEMAPPING_REGEXP))
+                mapurl = match[1].strip
+              end
+              if mapurl
+                uri = URI(url)
+                mapurl = uri.merge(mapurl).to_s
+              end
+            end
+            mapurl
+          end
+        rescue => e
+          HoptoadNotifier.notify(e)
+          Rails.cache.fetch(url, expires_in: 10.minutes) do
+            nil
           end
         end
       end
