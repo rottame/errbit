@@ -43,7 +43,7 @@ module AirbrakeApi
             number: backtrace_line['line'],
             column: backtrace_line['column']
           }
-          if context['sourceMapEnabled']
+          if resolve_source_maps?(event)
             event = resolve_source_maps(event)
           end
           event
@@ -97,6 +97,10 @@ module AirbrakeApi
 
       def context
         @context = params['context'] || {}
+      end
+
+      def resolve_source_maps?(event)
+        context['sourceMapEnabled'] && event[:file] =~ /^http(s)?:\/\//
       end
 
       def resolve_source_maps(event)
