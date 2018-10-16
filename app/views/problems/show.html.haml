@@ -62,6 +62,8 @@
     %li= link_to t('.environment'), '#environment', :rel => 'environment', :class => 'button'
     %li= link_to t('.parameters'), '#params', :rel => 'params', :class => 'button'
     %li= link_to t('.session'), '#session', :rel => 'session', :class => 'button'
+    - if @notice.history.try(:any?)
+      %li= link_to t('.history'), '#history', :rel => 'history', :class => 'button'
 
 - if @notice
   #summary
@@ -88,3 +90,8 @@
   #session
     %h3 Session
     = render 'notices/session', :notice => @notice
+
+  - if @notice.history.try(:any?)
+    #history
+      %h3 History
+      = render 'notices/history', :notice => @notice

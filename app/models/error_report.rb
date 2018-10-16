@@ -25,6 +25,7 @@ class ErrorReport
   attr_reader :request
   attr_reader :server_environment
   attr_reader :user_attributes
+  attr_reader :history
 
   def initialize(xml_or_attributes)
     @attributes = xml_or_attributes
@@ -71,7 +72,8 @@ class ErrorReport
       server_environment: server_environment,
       notifier:           notifier,
       user_attributes:    user_attributes,
-      framework:          framework
+      framework:          framework,
+      history:            history
     )
   end
 

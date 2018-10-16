@@ -20,7 +20,8 @@ module AirbrakeApi
           server_environment: server_environment,
           api_key:            params['key'].present? ? params['key'] : params['project_id'],
           notifier:           context['notifier'] || params['notifier'],
-          user_attributes:    user_attributes
+          user_attributes:    user_attributes,
+          history:            history
         }
       end
 
@@ -83,6 +84,18 @@ module AirbrakeApi
           'email'    => context['userEmail'],
           'username' => context['userUsername']
         }.compact
+      end
+
+      def history
+        history = context['history']
+        history = [] unless history
+        history = history.map do | entry |
+          entry['date'] = Time.parse(entry['date'])
+          entry
+        end
+        history.sort do | a, b |
+          b['date'] <=> a['date']
+        end
       end
 
       def url
@@ -164,8 +177,7 @@ module AirbrakeApi
           Rails.cache.fetch(url, expires_in: 1.hour) do
             Rails.logger.info "#{self.class.name}: fetch #{url}"
             uri = URI(url)
-            http = Net::HTTP.new(uri.host, uri.port)
-            response = http.get(uri.path)
+            response = Net::HTTP.get_response(uri)
 
             mapurl = nil
             if response.is_a?(Net::HTTPSuccess)
