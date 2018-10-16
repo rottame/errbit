@@ -100,20 +100,24 @@ module AirbrakeApi
       end
 
       def resolve_source_maps?(event)
-        context['sourceMapEnabled'] && event[:file] =~ /^http(s)?:\/\//
+        context['language'].try(:downcase) == 'javascript' && event[:file] =~ /^http(s)?:\/\//
       end
 
       def resolve_source_maps(event)
         if source_map_for?(event[:file])
+          Rails.logger.debug "#{self.class.name}: resolve sourcemap"
+          Rails.logger.debug "#{self.class.name}: event:    #{event.inspect}"
           begin
             code = "(new sourceMap.SourceMapConsumer(#{source_map_for(event[:file])})).originalPositionFor({line: #{event[:number]}, column: #{event[:column]}})"
             position = source_map_parser.eval(code)
+            Rails.logger.debug "#{self.class.name}: resolved: #{position}"
             if position['line'] && position['column'] && position['source']
               event[:number] = position['line']
               event[:column] = position['column']
               event[:file] = position['source']
             end
           rescue => e
+            Rails.logger.error "#{self.class.name}: cannot parse sourcemaps: #{e.to_s}"
             HoptoadNotifier.notify(e)
           end
         end
@@ -133,10 +137,12 @@ module AirbrakeApi
           if map
             sourcemap = begin
               Rails.cache.fetch(map, expires_in: 1.hour) do
+                Rails.logger.info "#{self.class.name}: fetch #{map}"
                 uri = URI(map)
                 Net::HTTP.get(uri).force_encoding(Encoding::UTF_8).encode
               end
             rescue => e
+              Rails.logger.error "#{self.class.name}: cannot fetch #{map}: #{e.to_s}"
               HoptoadNotifier.notify(e)
               Rails.cache.fetch(map, expires_in: 10.minutes) do
                 nil
@@ -156,6 +162,7 @@ module AirbrakeApi
         begin
           # step 1: fetch the javascript file
           Rails.cache.fetch(url, expires_in: 1.hour) do
+            Rails.logger.info "#{self.class.name}: fetch #{url}"
             uri = URI(url)
             http = Net::HTTP.new(uri.host, uri.port)
             response = http.get(uri.path)
@@ -173,9 +180,11 @@ module AirbrakeApi
                 mapurl = uri.merge(mapurl).to_s
               end
             end
+            Rails.logger.info "#{self.class.name}: sourcemap for #{url}: #{mapurl.inspect}"
             mapurl
           end
         rescue => e
+          Rails.logger.error "#{self.class.name}: cannot fetch #{url}: #{e.to_s}"
           HoptoadNotifier.notify(e)
           Rails.cache.fetch(url, expires_in: 10.minutes) do
             nil
